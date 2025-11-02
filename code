@@ -1,1 +1,99 @@
+# Stock Price Prediction using LSTM (Short Version)
 
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import yfinance as yf
+import datetime
+from sklearn.preprocessing import MinMaxScaler
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import LSTM, Dense, Dropout
+from sklearn.metrics import mean_squared_error
+
+# ---------------------------------------------
+# 1. Load Dataset (using Yahoo Finance)
+# ---------------------------------------------
+stock_symbol = 'AAPL'   # You can change to 'TSLA', 'GOOG', etc.
+end_date = datetime.datetime.today().strftime('%Y-%m-%d')
+
+# Download stock data
+data = yf.download(stock_symbol, start='2018-01-01', end=end_date)
+
+# Check if data was downloaded successfully
+if data.empty:
+    print("⚠ No data fetched. Check your internet connection or stock symbol.")
+    exit()
+
+print("\nSample data:\n", data.head())
+
+# Use only 'Close' price
+data = data[['Close']]
+
+# ---------------------------------------------
+# 2. Data Preprocessing
+# ---------------------------------------------
+scaler = MinMaxScaler(feature_range=(0, 1))
+scaled_data = scaler.fit_transform(data)
+
+# Create sequences (60 days -> next day)
+def create_sequences(dataset, time_step=60):
+    X, y = [], []
+    for i in range(time_step, len(dataset)):
+        X.append(dataset[i - time_step:i, 0])
+        y.append(dataset[i, 0])
+    return np.array(X), np.array(y)
+
+time_step = 60
+X, y = create_sequences(scaled_data, time_step)
+
+# Reshape input to [samples, time_steps, features]
+X = X.reshape(X.shape[0], X.shape[1], 1)
+
+# Split into training and testing data
+train_size = int(len(X) * 0.8)
+X_train, X_test = X[:train_size], X[train_size:]
+y_train, y_test = y[:train_size], y[train_size:]
+
+# ---------------------------------------------
+# 3. Build LSTM Model
+# ---------------------------------------------
+model = Sequential([
+    LSTM(50, return_sequences=True, input_shape=(X_train.shape[1], 1)),
+    Dropout(0.2),
+    LSTM(50, return_sequences=False),
+    Dropout(0.2),
+    Dense(1)
+])
+
+model.compile(optimizer='adam', loss='mean_squared_error')
+
+# ---------------------------------------------
+# 4. Train Model (Limited Epochs)
+# ---------------------------------------------
+print("\nTraining the model (1 epochs)...\n")
+model.fit(X_train, y_train, epochs=1, batch_size=10, verbose=1)
+
+# ---------------------------------------------
+# 5. Predictions
+# ---------------------------------------------
+predicted = model.predict(X_test)
+predicted_prices = scaler.inverse_transform(predicted.reshape(-1, 1))
+actual_prices = scaler.inverse_transform(y_test.reshape(-1, 1))
+
+# ---------------------------------------------
+# 6. Plot Results
+# ---------------------------------------------
+plt.figure(figsize=(10,6))
+plt.plot(actual_prices, color='blue', label='Actual Price')
+plt.plot(predicted_prices, color='red', label='Predicted Price')
+plt.title(f'{stock_symbol} Stock Price Prediction using LSTM')
+plt.xlabel('Time')
+plt.ylabel('Price')
+plt.legend()
+plt.show()
+
+# ---------------------------------------------
+# 7. Evaluate Model
+# ---------------------------------------------
+mse = mean_squared_error(actual_prices, predicted_prices)
+print(f"\nMean Squared Error: {mse:.4f}")
